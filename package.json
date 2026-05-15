@@ -1,0 +1,43 @@
+{
+  "name": "ai-code-review-agent",
+  "version": "1.0.0",
+  "description": "Autonomous AI Code Review Agent powered by NestJS and Anthropic Claude 3.5 Sonnet",
+  "scripts": {
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "build": "nest build",
+    "test": "npx tsx --test tests/**/*.test.ts"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "code-review",
+    "claude",
+    "anthropic",
+    "nestjs",
+    "static-analysis",
+    "ast"
+  ],
+  "author": "Karman1818",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@nestjs/common": "^10.0.0",
+    "@nestjs/config": "^3.0.0",
+    "@nestjs/core": "^10.0.0",
+    "@nestjs/platform-express": "^10.0.0",
+    "@nestjs/serve-static": "^4.0.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.0",
+    "reflect-metadata": "^0.1.13",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.0.0",
+    "@nestjs/schematics": "^10.0.0",
+    "@types/express": "^4.17.0",
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.0.0"
+  }
+}
