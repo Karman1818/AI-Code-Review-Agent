@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🤖 AI Code Review Agent</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+  <style>
+    :root {
+      --bg: #0f0f1a; --surface: #1a1a2e; --surface2: #16213e;
+      --accent: #7c3aed; --accent2: #ec4899; --green: #10b981;
+      --text: #e2e8f0; --muted: #64748b; --border: #334155;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 32px; display: flex; align-items: center; gap: 12px; }
+    header h1 { font-size: 20px; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .badge { background: var(--accent); color: white; font-size: 11px; padding: 2px 8px; border-radius: 99px; font-weight: 600; }
+
+    .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 0; height: calc(100vh - 57px); }
+
+    .panel { display: flex; flex-direction: column; }
+    .panel-header { background: var(--surface2); padding: 12px 20px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0.05em; text-transform: uppercase; display: flex; align-items: center; justify-content: space-between; }
+
+    .editor-wrap { flex: 1; overflow: hidden; position: relative; }
+    .CodeMirror { height: 100% !important; font-size: 14px; font-family: 'Cascadia Code', 'Fira Code', monospace; }
+
+    .btn-analyze { margin: 16px 20px; padding: 14px; background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; border-radius: 10px; color: white; font-size: 15px; font-weight: 700; cursor: pointer; transition: opacity .2s, transform .1s; letter-spacing: 0.02em; }
+    .btn-analyze:hover { opacity: .9; }
+    .btn-analyze:active { transform: scale(.98); }
+    .btn-analyze:disabled { opacity: .5; cursor: not-allowed; }
+
+    .result-panel { border-left: 1px solid var(--border); overflow-y: auto; }
+    .result-content { padding: 20px; }
+
+    .placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 16px; color: var(--muted); }
+    .placeholder .icon { font-size: 48px; opacity: .4; }
+    .placeholder p { font-size: 14px; }
+
+    .score-card { background: var(--surface); border-radius: 16px; padding: 28px; text-align: center; margin-bottom: 20px; border: 1px solid var(--border); position: relative; overflow: hidden; }
+    .score-card::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(124,58,237,.08) 0%, transparent 70%); }
+    .score-num { font-size: 72px; font-weight: 900; line-height: 1; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .score-grade { font-size: 24px; font-weight: 700; color: var(--muted); margin-top: 4px; }
+    .score-label { font-size: 13px; color: var(--muted); margin-top: 8px; }
+
+    .section { background: var(--surface); border-radius: 12px; padding: 16px 20px; margin-bottom: 16px; border: 1px solid var(--border); }
+    .section h3 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 12px; }
+    .issue-item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; align-items: flex-start; }
+    .issue-item:last-child { border-bottom: none; }
+    .issue-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+    .dot-red { background: #ef4444; }
+    .dot-yellow { background: #f59e0b; }
+    .dot-blue { background: var(--accent); }
+
+    .suggestion { background: var(--surface); border-left: 4px solid var(--accent); border-radius: 0 12px 12px 0; padding: 16px 20px; margin-bottom: 16px; font-size: 14px; line-height: 1.7; color: var(--text); }
+
+    .tools-used { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    .tool-chip { background: rgba(124,58,237,.15); border: 1px solid rgba(124,58,237,.3); color: var(--accent); font-size: 12px; padding: 4px 10px; border-radius: 6px; font-family: monospace; }
+
+    .loader { display: none; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 20px; }
+    .loader.active { display: flex; }
+    .loader-ring { width: 60px; height: 60px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
+    .loader-text { color: var(--muted); font-size: 14px; }
+    .loader-step { font-size: 12px; color: var(--accent); font-family: monospace; animation: blink 1.5s ease infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes blink { 0%,100%{opacity:.3} 50%{opacity:1} }
+
+    .iter-badge { font-size: 11px; background: rgba(16,185,129,.1); color: var(--green); border: 1px solid rgba(16,185,129,.2); padding: 2px 8px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <span style="font-size:24px">🤖</span>
+    <h1>AI Code Review Agent</h1>
+    <span class="badge">NestJS + Claude</span>
+    <span style="margin-left:auto;font-size:13px;color:var(--muted)" id="status">● Offline</span>
+  </header>
+
+  <div class="layout">
+    <!-- LEWA STRONA: EDYTOR -->
+    <div class="panel">
+      <div class="panel-header">
+        <span>📝 Edytor kodu</span>
+        <button onclick="loadBadExample()" style="background:rgba(236,72,153,.1);border:1px solid rgba(236,72,153,.3);color:#ec4899;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;">Załaduj przykład z błędami</button>
+      </div>
+      <div class="editor-wrap">
+        <textarea id="code-editor"></textarea>
+      </div>
+      <!-- MISJA 4: Podłącz ten przycisk do fetch('/agent/analyze') -->
+      <button class="btn-analyze" id="analyze-btn" onclick="analyze()">
+        🔍 Analizuj kod przez AI Agenta
+      </button>
+    </div>
+
+    <!-- PRAWA STRONA: WYNIKI -->
+    <div class="panel result-panel" id="result-panel">
+      <div class="panel-header"><span>📊 Wyniki analizy</span><span class="iter-badge" id="iter-badge" style="display:none"></span></div>
+      <div class="result-content">
+
+        <!-- LOADER (pokazuje się podczas analizy) -->
+        <div class="loader" id="loader">
+          <div class="loader-ring"></div>
+          <div class="loader-text">Agent analizuje kod...</div>
+          <div class="loader-step" id="loader-step">► wywołuję analyze_syntax...</div>
+        </div>
+
+        <!-- PLACEHOLDER (przed pierwszą analizą) -->
+        <div class="placeholder" id="placeholder">
+          <div class="icon">🤖</div>
+          <p>Wklej kod i kliknij <strong>Analizuj</strong></p>
+          <p style="font-size:12px">Agent użyje 3 narzędzi żeby ocenić Twój kod</p>
+        </div>
+
+        <!-- WYNIKI (wypełnia MISJA 4) -->
+        <div id="results" style="display:none">
+          <div class="score-card">
+            <div class="score-num" id="res-score">—</div>
+            <div class="score-grade" id="res-grade">—</div>
+            <div class="score-label">Ocena jakości kodu</div>
+          </div>
+
+          <div id="tools-section" class="tools-used"></div>
+
+          <div class="suggestion" id="res-suggestion">—</div>
+
+          <div class="section" id="issues-section" style="display:none">
+            <h3>⚠️ Problemy składniowe</h3>
+            <div id="res-issues"></div>
+          </div>
+
+          <div class="section" id="smells-section" style="display:none">
+            <h3>🧪 Zapachy kodu</h3>
+            <div id="res-smells"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+
+  <script>
+    // Inicjalizacja edytora
+    const editor = CodeMirror.fromTextArea(document.getElementById('code-editor'), {
+      mode: { name: 'javascript', typescript: true },
+      theme: 'dracula',
+      lineNumbers: true,
+      autoCloseBrackets: true,
+      tabSize: 2,
+      indentWithTabs: false,
+      lineWrapping: false,
+    });
+
+    // Sprawdź czy backend działa
+    fetch('/agent/ping').then(r => r.json()).then(d => {
+      document.getElementById('status').textContent = '● ' + d.message;
+      document.getElementById('status').style.color = '#10b981';
+    }).catch(() => {
+      document.getElementById('status').textContent = '● Błąd połączenia';
+      document.getElementById('status').style.color = '#ef4444';
+    });
+
+    // Przykładowy zły kod
+    function loadBadExample() {
+      editor.setValue(`// Przykład kodu z problemami — przeanalizuj mnie!
+function obliczCene(x) {
+  console.log("start");
+  let wynik = 0;
+  if (x > 0) {
+    if (x > 100) {
+      if (x > 1000) {
+        if (x > 10000) {
+          wynik = x * 0.5;
+        } else {
+          wynik = x * 0.7;
+        }
+      } else {
+        wynik = x * 0.85;
+      }
+    } else {
+      wynik = x * 0.95;
+    }
+  }
+  // magiczne liczby wszędzie
+  let podatek = wynik * 0.23;
+  let prowizja = wynik * 0.05;
+  let extra = 99.99;
+  console.log("wynik:", wynik);
+  return wynik + podatek + prowizja + extra;
+}
+
+function obliczCene2(x) {
+  console.log("start");
+  let wynik = 0;
+  if (x > 0) {
+    wynik = x * 0.95;
+  }
+  let podatek = wynik * 0.23;
+  let prowizja = wynik * 0.05;
+  let extra = 99.99;
+  return wynik + podatek + prowizja + extra;
+}`);
+    }
+
+    // MISJA 4: Uzupełnij tę funkcję!
+    async function analyze() {
+      const code = editor.getValue();
+      if (!code.trim()) return;
+
+      // Pokaż loader, ukryj resztę
+      document.getElementById('placeholder').style.display = 'none';
+      document.getElementById('results').style.display = 'none';
+      document.getElementById('loader').classList.add('active');
+      document.getElementById('analyze-btn').disabled = true;
+
+      // Symulacja kroków (wizualizacja)
+      const steps = ['► wywołuję analyze_syntax...', '► wywołuję detect_smells...', '► wywołuję calculate_score...', '► generuję podsumowanie...'];
+      let stepIdx = 0;
+      const stepInterval = setInterval(() => {
+        document.getElementById('loader-step').textContent = steps[stepIdx % steps.length];
+        stepIdx++;
+      }, 800);
+
+      try {
+        const res = await fetch('/agent/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        showResults(data);
+
+      } catch (err) {
+        showResults({ score: 0, grade: 'ERR', issues: ['Błąd połączenia: ' + err.message], smells: [], suggestion: 'Sprawdź czy backend działa (npm run start:dev)', toolsUsed: [], iterations: 0 });
+      } finally {
+        clearInterval(stepInterval);
+        document.getElementById('loader').classList.remove('active');
+        document.getElementById('analyze-btn').disabled = false;
+      }
+    }
+
+    function showResults(data) {
+      document.getElementById('res-score').textContent = data.score ?? '—';
+      document.getElementById('res-grade').textContent = data.grade ?? '—';
+      document.getElementById('res-suggestion').textContent = data.suggestion || 'Brak podsumowania';
+
+      // Narzędzia użyte przez agenta
+      const toolsEl = document.getElementById('tools-section');
+      toolsEl.innerHTML = '';
+      document.getElementById('iter-badge').style.display = 'none';
+      if (data.toolsUsed?.length) {
+        toolsEl.innerHTML = data.toolsUsed.map(t => `<span class="tool-chip">🛠 ${escapeHtml(t)}</span>`).join('');
+        const badge = document.getElementById('iter-badge');
+        badge.textContent = `${data.iterations} iteracji`;
+        badge.style.display = '';
+      }
+
+      // Issues
+      const issuesEl = document.getElementById('res-issues');
+      issuesEl.innerHTML = '';
+      document.getElementById('issues-section').style.display = 'none';
+      if (data.issues?.length) {
+        issuesEl.innerHTML = data.issues.map(i => `<div class="issue-item"><div class="issue-dot dot-red"></div><span>${escapeHtml(i)}</span></div>`).join('');
+        document.getElementById('issues-section').style.display = '';
+      }
+
+      // Smells
+      const smellsEl = document.getElementById('res-smells');
+      smellsEl.innerHTML = '';
+      document.getElementById('smells-section').style.display = 'none';
+      if (data.smells?.length) {
+        smellsEl.innerHTML = data.smells.map(s => `<div class="issue-item"><div class="issue-dot dot-yellow"></div><span>${escapeHtml(s)}</span></div>`).join('');
+        document.getElementById('smells-section').style.display = '';
+      }
+
+      document.getElementById('results').style.display = '';
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+  </script>
+</body>
+</html>
