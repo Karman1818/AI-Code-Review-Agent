@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Code Review Agent</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+  <style>
+    :root {
+      --bg: #0f0f1a; --surface: #1a1a2e; --surface2: #16213e;
+      --accent: #7c3aed; --accent2: #ec4899; --green: #10b981;
+      --text: #e2e8f0; --muted: #64748b; --border: #334155;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 32px; display: flex; align-items: center; gap: 12px; }
+    header h1 { font-size: 20px; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .badge { background: var(--accent); color: white; font-size: 11px; padding: 2px 8px; border-radius: 99px; font-weight: 600; }
+
+    .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 0; height: calc(100vh - 57px); }
+
+    .panel { display: flex; flex-direction: column; }
+    .panel-header { background: var(--surface2); padding: 12px 20px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0.05em; text-transform: uppercase; display: flex; align-items: center; justify-content: space-between; }
+
+    .editor-wrap { flex: 1; overflow: hidden; position: relative; }
+    .CodeMirror { height: 100% !important; font-size: 14px; font-family: 'Cascadia Code', 'Fira Code', monospace; }
+
+    .btn-analyze { margin: 16px 20px; padding: 14px; background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; border-radius: 10px; color: white; font-size: 15px; font-weight: 700; cursor: pointer; transition: opacity .2s, transform .1s; letter-spacing: 0.02em; }
+    .btn-analyze:hover { opacity: .9; }
+    .btn-analyze:active { transform: scale(.98); }
+    .btn-analyze:disabled { opacity: .5; cursor: not-allowed; }
+
+    .result-panel { border-left: 1px solid var(--border); overflow-y: auto; }
+    .result-content { padding: 20px; }
+
+    .placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 16px; color: var(--muted); }
+    .placeholder .icon { font-size: 48px; opacity: .4; }
+    .placeholder p { font-size: 14px; }
+
+    .score-card { background: var(--surface); border-radius: 16px; padding: 28px; text-align: center; margin-bottom: 20px; border: 1px solid var(--border); position: relative; overflow: hidden; }
+    .score-card::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(124,58,237,.08) 0%, transparent 70%); }
+    .score-num { font-size: 72px; font-weight: 900; line-height: 1; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .score-grade { font-size: 24px; font-weight: 700; color: var(--muted); margin-top: 4px; }
+    .score-label { font-size: 13px; color: var(--muted); margin-top: 8px; }
+
+    .section { background: var(--surface); border-radius: 12px; padding: 16px 20px; margin-bottom: 16px; border: 1px solid var(--border); }
+    .section h3 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 12px; }
+    .issue-item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; align-items: flex-start; }
+    .issue-item:last-child { border-bottom: none; }
+    .issue-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+    .dot-red { background: #ef4444; }
+    .dot-yellow { background: #f59e0b; }
+    .dot-blue { background: var(--accent); }
+
+    .suggestion { background: var(--surface); border-left: 4px solid var(--accent); border-radius: 0 12px 12px 0; padding: 16px 20px; margin-bottom: 16px; font-size: 14px; line-height: 1.7; color: var(--text); }
+
+    .tools-used { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    .tool-chip { background: rgba(124,58,237,.15); border: 1px solid rgba(124,58,237,.3); color: var(--accent); font-size: 12px; padding: 4px 10px; border-radius: 6px; font-family: monospace; }
+
+    .loader { display: none; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 20px; }
+    .loader.active { display: flex; }
+    .loader-ring { width: 60px; height: 60px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
+    .loader-text { color: var(--muted); font-size: 14px; }
+    .loader-step { font-size: 12px; color: var(--accent); font-family: monospace; animation: blink 1.5s ease infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes blink { 0%,100%{opacity:.3} 50%{opacity:1} }
+
+    .iter-badge { font-size: 11px; background: rgba(16,185,129,.1); color: var(--green); border: 1px solid rgba(16,185,129,.2); padding: 2px 8px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <span style="font-size:24px">🤖</span>
+    <h1>AI Code Review Agent</h1>
+    <span class="badge">NestJS + Claude</span>
+    <span style="margin-left:auto;font-size:13px;color:var(--muted)" id="status">● Connecting...</span>
+  </header>
+
+  <div class="layout">
+    <div class="panel">
+      <div class="panel-header">
+        <span>💻 Code Editor</span>
+        <button onclick="loadBadExample()" style="background:rgba(236,72,153,.1);border:1px solid rgba(236,72,153,.3);color:#ec4899;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;">Load Sample with Issues</button>
+      </div>
+      <div class="editor-wrap">
+        <textarea id="code-editor"></textarea>
+      </div>
+      <button class="btn-analyze" id="btn-analyze" onclick="runAnalysis()">
+        🚀 Analyze Code with Agent
+      </button>
+    </div>
+
+    <div class="panel result-panel">
+      <div class="panel-header">
+        <span>📊 Analysis Results</span>
+        <span id="iter-wrap" style="display:none">
+          <span class="iter-badge" id="iter-count">Iterations: 1</span>
+        </span>
+      </div>
+
+      <div class="placeholder" id="placeholder">
+        <div class="icon">🔍</div>
+        <p>Paste code on the left and click "Analyze Code with Agent"</p>
+      </div>
+
+      <div class="loader" id="loader">
+        <div class="loader-ring"></div>
+        <div class="loader-text">Autonomous agent is inspecting your code...</div>
+        <div class="loader-step" id="loader-step">Calling Claude 3.5 Sonnet Tool Use...</div>
+      </div>
+
+      <div class="result-content" id="result-content" style="display:none">
+        <div class="score-card">
+          <div class="score-num" id="score-num">--</div>
+          <div class="score-grade" id="score-grade">Grade: -</div>
+          <div class="score-label">Overall Code Quality Rating</div>
+        </div>
+
+        <div class="section">
+          <h3>Tools Executed</h3>
+          <div class="tools-used" id="tools-list"></div>
+        </div>
+
+        <div class="section" id="issues-section">
+          <h3>Syntax Anomalies</h3>
+          <div id="issues-list"></div>
+        </div>
+
+        <div class="section" id="smells-section">
+          <h3>Code Smells & Complexity</h3>
+          <div id="smells-list"></div>
+        </div>
+
+        <div class="section">
+          <h3>Recommendation Summary</h3>
+          <div class="suggestion" id="suggestion-text"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+  <script>
+    const editor = CodeMirror.fromTextArea(document.getElementById('code-editor'), {
+      mode: 'javascript',
+      theme: 'dracula',
+      lineNumbers: true,
+      tabSize: 2,
+    });
+
+    const defaultCode = `// Paste your TypeScript or JavaScript code here\nfunction calculateDiscount(price, userType) {\n  let discount = 0;\n  if (userType === 'VIP') {\n    discount = price * 0.20;\n  } else {\n    discount = price * 0.05;\n  }\n  console.log("Calculated discount:", discount);\n  return price - discount;\n}`;
+
+    editor.setValue(defaultCode);
+
+    fetch('/agent/ping')
+      .then(r => r.json())
+      .then(d => {
+        const el = document.getElementById('status');
+        if (d.message.includes('Claude')) {
+          el.textContent = '● Online (Claude 3.5 Sonnet)';
+          el.style.color = '#10b981';
+        } else {
+          el.textContent = '● Online (Local Fallback Mode)';
+          el.style.color = '#38bdf8';
+        }
+      })
+      .catch(() => {
+        const el = document.getElementById('status');
+        el.textContent = '● Server Offline';
+        el.style.color = '#ef4444';
+      });
+
+    function loadBadExample() {
+      fetch('/bad-code.ts')
+        .then(r => r.text())
+        .then(code => editor.setValue(code))
+        .catch(() => {
+          editor.setValue(`function processData(x) {\n  console.log("run");\n  if (x > 10) {\n    if (x > 20) {\n      if (x > 30) {\n        return x * 99;\n      }\n    }\n  }\n}`);
+        });
+    }
+
+    async function runAnalysis() {
+      const code = editor.getValue().trim();
+      if (!code) return alert('Please enter code to analyze.');
+
+      const btn = document.getElementById('btn-analyze');
+      const placeholder = document.getElementById('placeholder');
+      const loader = document.getElementById('loader');
+      const content = document.getElementById('result-content');
+
+      btn.disabled = true;
+      placeholder.style.display = 'none';
+      content.style.display = 'none';
+      loader.classList.add('active');
+
+      try {
+        const res = await fetch('/agent/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code }),
+        });
+
+        const data = await res.json();
+        renderResult(data);
+      } catch (err) {
+        alert('Analysis error: ' + err.message);
+        placeholder.style.display = 'flex';
+      } finally {
+        btn.disabled = false;
+        loader.classList.remove('active');
+      }
+    }
+
+    function renderResult(data) {
+      document.getElementById('result-content').style.display = 'block';
+
+      document.getElementById('score-num').textContent = data.score;
+      document.getElementById('score-grade').textContent = 'Grade: ' + data.grade;
+
+      if (data.iterations > 0) {
+        document.getElementById('iter-wrap').style.display = 'inline';
+        document.getElementById('iter-count').textContent = `Iterations: ${data.iterations}`;
+      }
+
+      const toolsList = document.getElementById('tools-list');
+      toolsList.innerHTML = (data.toolsUsed || []).map(t => `<span class="tool-chip">${t}()</span>`).join('');
+
+      const issuesList = document.getElementById('issues-list');
+      if (!data.issues || data.issues.length === 0) {
+        issuesList.innerHTML = '<div style="color:#10b981;font-size:14px;">✅ No critical syntax anomalies detected.</div>';
+      } else {
+        issuesList.innerHTML = data.issues.map(i => `
+          <div class="issue-item">
+            <div class="issue-dot dot-red"></div>
+            <div>${i}</div>
+          </div>
+        `).join('');
+      }
+
+      const smellsList = document.getElementById('smells-list');
+      if (!data.smells || data.smells.length === 0) {
+        smellsList.innerHTML = '<div style="color:#10b981;font-size:14px;">✅ No severe code smells detected.</div>';
+      } else {
+        smellsList.innerHTML = data.smells.map(s => `
+          <div class="issue-item">
+            <div class="issue-dot dot-yellow"></div>
+            <div>${s}</div>
+          </div>
+        `).join('');
+      }
+
+      document.getElementById('suggestion-text').textContent = data.suggestion || 'Review complete.';
+    }
+  </script>
+</body>
+</html>
